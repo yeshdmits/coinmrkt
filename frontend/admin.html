@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Orders - CoinMrkt</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-top">
+            <div class="header-left"></div>
+            <div class="header-center">
+                <a href="/" class="logo-link"><h1>CoinMrkt</h1></a>
+                <p>Order Management</p>
+            </div>
+            <div class="header-right">
+                <div id="auth-status">
+                    <a href="/" class="nav-btn">Shop</a>
+                    <a href="/manage" class="nav-btn manage-btn">Manage</a>
+                    <button onclick="logout()" class="nav-btn logout-btn">Logout</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="admin-page">
+        <div class="admin-stats">
+            <div class="stat-card">
+                <h3>Total Orders</h3>
+                <span id="total-orders">0</span>
+            </div>
+            <div class="stat-card">
+                <h3>Paid</h3>
+                <span id="paid-orders">0</span>
+            </div>
+            <div class="stat-card">
+                <h3>Completed</h3>
+                <span id="completed-orders">0</span>
+            </div>
+            <div class="stat-card">
+                <h3>Total Revenue</h3>
+                <span id="total-revenue">$0</span>
+            </div>
+        </div>
+
+        <h2>All Orders</h2>
+        <div id="orders-list" class="orders-list admin-orders"></div>
+    </main>
+
+    <script>
+        let currentUser = null;
+        let orders = [];
+
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/me');
+                const data = await response.json();
+                if (!data.user || !data.user.is_admin) {
+                    window.location.href = '/login';
+                    return;
+                }
+                currentUser = data.user;
+                fetchOrders();
+            } catch (error) {
+                window.location.href = '/login';
+            }
+        }
+
+        async function fetchOrders() {
+            try {
+                const response = await fetch('/api/admin/orders');
+                if (response.status === 401 || response.status === 403) {
+                    window.location.href = '/login';
+                    return;
+                }
+                orders = await response.json();
+                updateStats(orders);
+                renderOrders(orders);
+            } catch (error) {
+                console.error('Error fetching orders:', error);
+            }
+        }
+
+        function updateStats(orders) {
+            const total = orders.length;
+            const paid = orders.filter(o => o.payment_status === 'completed').length;
+            const completed = orders.filter(o => o.status === 'completed').length;
+            const revenue = orders
+                .filter(o => o.payment_status === 'completed')
+                .reduce((sum, o) => sum + o.total, 0);
+
+            document.getElementById('total-orders').textContent = total;
+            document.getElementById('paid-orders').textContent = paid;
+            document.getElementById('completed-orders').textContent = completed;
+            document.getElementById('total-revenue').textContent =
+                '$' + revenue.toLocaleString(undefined, { minimumFractionDigits: 2 });
+        }
+
+        function renderOrders(orders) {
+            const ordersList = document.getElementById('orders-list');
+
+            if (orders.length === 0) {
+                ordersList.innerHTML = '<p class="no-items">No orders yet.</p>';
+                return;
+            }
+
+            ordersList.innerHTML = orders.map(order => `
+                <div class="order-card">
+                    <div class="order-header">
+                        <span class="order-id">Order #${order._id.slice(-8)}</span>
+                        <div class="order-badges">
+                            <span class="order-badge payment-${order.payment_status}">Payment: ${order.payment_status}</span>
+                            <span class="order-badge status-${order.status}">Status: ${order.status}</span>
+                        </div>
+                    </div>
+                    <div class="order-items">
+                        ${order.items.map(item => `
+                            <div class="order-item" onclick="viewCoin('${item.coin_id}')">
+                                <img src="${item.coin?.image_url || 'https://via.placeholder.com/60x60?text=Coin'}" alt="${item.coin?.name || 'Coin'}">
+                                <div class="order-item-info">
+                                    <span class="order-item-name">${item.coin?.name || 'Unknown Coin'}</span>
+                                    <span class="order-item-qty">Qty: ${item.quantity}</span>
+                                </div>
+                                <div class="order-item-price">
+                                    $${item.coin ? (item.coin.price * item.quantity).toLocaleString() : '0'}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="order-details">
+                        <p><strong>Customer:</strong> ${order.customer_name}</p>
+                        <p><strong>Email:</strong> ${order.customer_email}</p>
+                        <p><strong>Payment Method:</strong> ${order.payment_method.toUpperCase()}</p>
+                    </div>
+                    <div class="order-footer">
+                        <div class="order-total">
+                            Total: $${order.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </div>
+                        <div class="order-actions">
+                            <select onchange="updateOrderStatus('${order._id}', this.value)" class="status-select">
+                                <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pending</option>
+                                <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Completed</option>
+                                <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function viewCoin(coinId) {
+            window.location.href = `/coin/${coinId}`;
+        }
+
+        async function updateOrderStatus(orderId, newStatus) {
+            try {
+                const response = await fetch(`/api/admin/orders/${orderId}/status`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+
+                if (response.ok) {
+                    fetchOrders();
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Error updating order status');
+                }
+            } catch (error) {
+                alert('Error updating order status');
+            }
+        }
+
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/';
+        }
+
+        checkAuth();
+    </script>
+</body>
+</html>

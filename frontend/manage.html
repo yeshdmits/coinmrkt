@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Coins - CoinMrkt</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-top">
+            <div class="header-left"></div>
+            <div class="header-center">
+                <a href="/" class="logo-link"><h1>CoinMrkt</h1></a>
+                <p>Coin Management</p>
+            </div>
+            <div class="header-right">
+                <div id="auth-status">
+                    <a href="/" class="nav-btn">Shop</a>
+                    <a href="/admin" class="nav-btn">Orders</a>
+                    <button onclick="logout()" class="nav-btn logout-btn">Logout</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="manage-page">
+        <div class="manage-header">
+            <h2>Manage Coins</h2>
+            <button class="add-coin-btn" onclick="showAddModal()">+ Add New Coin</button>
+        </div>
+
+        <div id="coins-list" class="coins-manage-list"></div>
+    </main>
+
+    <!-- Add/Edit Coin Modal -->
+    <div id="coin-modal" class="modal">
+        <div class="modal-content coin-form-modal">
+            <h2 id="modal-title">Add New Coin</h2>
+            <form id="coin-form">
+                <input type="hidden" id="coin-id">
+                <input type="text" id="coin-name" placeholder="Coin Name" required>
+                <textarea id="coin-description" placeholder="Description" required></textarea>
+                <div class="form-row">
+                    <select id="coin-metal" required>
+                        <option value="">Select Metal</option>
+                        <option value="Gold">Gold</option>
+                        <option value="Silver">Silver</option>
+                        <option value="Platinum">Platinum</option>
+                        <option value="Bronze">Bronze</option>
+                    </select>
+                    <input type="number" id="coin-weight" placeholder="Weight (grams)" step="0.01" required>
+                </div>
+                <div class="form-row">
+                    <input type="number" id="coin-year" placeholder="Year" required>
+                    <input type="text" id="coin-country" placeholder="Country" required>
+                </div>
+                <div class="form-row">
+                    <input type="number" id="coin-price" placeholder="Price ($)" step="0.01" required>
+                    <input type="number" id="coin-stock" placeholder="Stock" required>
+                </div>
+                <div class="image-upload-section">
+                    <label>Coin Image</label>
+                    <div class="image-preview-container">
+                        <img id="image-preview" src="" alt="Preview" style="display: none;">
+                        <div id="image-placeholder" class="image-placeholder">No image selected</div>
+                    </div>
+                    <div class="image-upload-actions">
+                        <label class="upload-btn">
+                            <input type="file" id="coin-image-file" accept="image/*" onchange="handleImageUpload(event)">
+                            Upload Image
+                        </label>
+                        <span class="upload-or">or</span>
+                        <input type="url" id="coin-image" placeholder="Paste image URL">
+                    </div>
+                    <input type="hidden" id="uploaded-image-url">
+                </div>
+                <button type="submit" id="save-btn">Save Coin</button>
+            </form>
+            <button class="close-btn" onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content delete-confirm-modal">
+            <h2>Delete Coin</h2>
+            <p>Are you sure you want to delete "<span id="delete-coin-name"></span>"?</p>
+            <div class="delete-actions">
+                <button class="delete-confirm-btn" onclick="confirmDelete()">Delete</button>
+                <button class="close-btn" onclick="closeDeleteModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let coins = [];
+        let deleteTargetId = null;
+
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/me');
+                const data = await response.json();
+                if (!data.user || !data.user.is_admin) {
+                    window.location.href = '/login';
+                    return;
+                }
+                fetchCoins();
+            } catch (error) {
+                window.location.href = '/login';
+            }
+        }
+
+        async function fetchCoins() {
+            try {
+                const response = await fetch('/api/coins');
+                coins = await response.json();
+                renderCoins();
+            } catch (error) {
+                console.error('Error fetching coins:', error);
+            }
+        }
+
+        function renderCoins() {
+            const list = document.getElementById('coins-list');
+            if (coins.length === 0) {
+                list.innerHTML = '<p class="no-items">No coins yet. Add your first coin!</p>';
+                return;
+            }
+
+            list.innerHTML = coins.map(coin => `
+                <div class="coin-manage-card">
+                    <img src="${coin.image_url || 'https://via.placeholder.com/100x100?text=Coin'}" alt="${coin.name}">
+                    <div class="coin-manage-info">
+                        <h3>${coin.name}</h3>
+                        <p>${coin.description}</p>
+                        <div class="coin-manage-meta">
+                            <span>${coin.metal}</span>
+                            <span>${coin.weight_grams}g</span>
+                            <span>${coin.country}</span>
+                            <span>${coin.year}</span>
+                        </div>
+                    </div>
+                    <div class="coin-manage-stats">
+                        <div class="stat">
+                            <span class="label">Price</span>
+                            <span class="value">$${coin.price.toLocaleString()}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">Stock</span>
+                            <span class="value">${coin.stock}</span>
+                        </div>
+                    </div>
+                    <div class="coin-manage-actions">
+                        <button class="edit-btn" onclick="editCoin('${coin._id}')">Edit</button>
+                        <button class="delete-btn" onclick="deleteCoin('${coin._id}', '${coin.name}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showAddModal() {
+            document.getElementById('modal-title').textContent = 'Add New Coin';
+            document.getElementById('coin-form').reset();
+            document.getElementById('coin-id').value = '';
+            document.getElementById('uploaded-image-url').value = '';
+            hideImagePreview();
+            document.getElementById('coin-modal').classList.add('open');
+        }
+
+        function editCoin(coinId) {
+            const coin = coins.find(c => c._id === coinId);
+            if (!coin) return;
+
+            document.getElementById('modal-title').textContent = 'Edit Coin';
+            document.getElementById('coin-id').value = coinId;
+            document.getElementById('coin-name').value = coin.name;
+            document.getElementById('coin-description').value = coin.description;
+            document.getElementById('coin-metal').value = coin.metal;
+            document.getElementById('coin-weight').value = coin.weight_grams;
+            document.getElementById('coin-year').value = coin.year;
+            document.getElementById('coin-country').value = coin.country;
+            document.getElementById('coin-price').value = coin.price;
+            document.getElementById('coin-stock').value = coin.stock;
+            document.getElementById('coin-image').value = coin.image_url || '';
+            document.getElementById('uploaded-image-url').value = '';
+
+            // Show image preview if exists
+            if (coin.image_url) {
+                showImagePreview(coin.image_url);
+            } else {
+                hideImagePreview();
+            }
+
+            document.getElementById('coin-modal').classList.add('open');
+        }
+
+        async function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('uploaded-image-url').value = data.url;
+                    document.getElementById('coin-image').value = '';
+                    showImagePreview(data.url);
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Error uploading image');
+                }
+            } catch (error) {
+                alert('Error uploading image');
+            }
+        }
+
+        function showImagePreview(url) {
+            const preview = document.getElementById('image-preview');
+            const placeholder = document.getElementById('image-placeholder');
+            preview.src = url;
+            preview.style.display = 'block';
+            placeholder.style.display = 'none';
+        }
+
+        function hideImagePreview() {
+            const preview = document.getElementById('image-preview');
+            const placeholder = document.getElementById('image-placeholder');
+            preview.style.display = 'none';
+            placeholder.style.display = 'flex';
+        }
+
+        // Update preview when URL is pasted
+        document.getElementById('coin-image').addEventListener('input', function(e) {
+            const url = e.target.value;
+            if (url) {
+                showImagePreview(url);
+                document.getElementById('uploaded-image-url').value = '';
+            } else {
+                hideImagePreview();
+            }
+        });
+
+        function closeModal() {
+            document.getElementById('coin-modal').classList.remove('open');
+        }
+
+        function deleteCoin(coinId, coinName) {
+            deleteTargetId = coinId;
+            document.getElementById('delete-coin-name').textContent = coinName;
+            document.getElementById('delete-modal').classList.add('open');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('delete-modal').classList.remove('open');
+            deleteTargetId = null;
+        }
+
+        async function confirmDelete() {
+            if (!deleteTargetId) return;
+
+            try {
+                const response = await fetch(`/api/admin/coins/${deleteTargetId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    closeDeleteModal();
+                    fetchCoins();
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Error deleting coin');
+                }
+            } catch (error) {
+                alert('Error deleting coin');
+            }
+        }
+
+        document.getElementById('coin-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const coinId = document.getElementById('coin-id').value;
+            // Use uploaded image URL if available, otherwise use pasted URL
+            const uploadedUrl = document.getElementById('uploaded-image-url').value;
+            const pastedUrl = document.getElementById('coin-image').value;
+            const imageUrl = uploadedUrl || pastedUrl || null;
+
+            const coinData = {
+                name: document.getElementById('coin-name').value,
+                description: document.getElementById('coin-description').value,
+                metal: document.getElementById('coin-metal').value,
+                weight_grams: parseFloat(document.getElementById('coin-weight').value),
+                year: parseInt(document.getElementById('coin-year').value),
+                country: document.getElementById('coin-country').value,
+                price: parseFloat(document.getElementById('coin-price').value),
+                stock: parseInt(document.getElementById('coin-stock').value),
+                image_url: imageUrl
+            };
+
+            try {
+                const url = coinId ? `/api/admin/coins/${coinId}` : '/api/admin/coins';
+                const method = coinId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(coinData)
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    fetchCoins();
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Error saving coin');
+                }
+            } catch (error) {
+                alert('Error saving coin');
+            }
+        });
+
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/';
+        }
+
+        checkAuth();
+    </script>
+</body>
+</html>
