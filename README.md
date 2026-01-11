@@ -41,3 +41,4 @@ docker compose down -v
 - `DELETE /api/coins/{id}` - Delete a coin
 - `GET /api/orders` - List all orders
 - `POST /api/orders` - Create an order
+# agentplatz
